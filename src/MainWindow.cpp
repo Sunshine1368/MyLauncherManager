@@ -4,11 +4,120 @@
 #include <QMessageBox>
 #include <QApplication>
 #include <QToolBar>
-#include <QStyle>
 #include <QFile>
-#include <QProcess>
 #include <QFileInfo>
+#include <QProcess>
+#include <QTimer>
+#include <QPainter>
+#include <QPixmap>
+#include <QTransform>
+#include <QSequentialAnimationGroup>
+#include <QVariantAnimation>
 
+// ── 带旋转动画的刷新按钮 ──────────────────────────────────────────
+class RefreshButton : public QToolButton {
+    Q_OBJECT
+    Q_PROPERTY(int angle READ angle WRITE setAngle)
+public:
+    explicit RefreshButton(QWidget* parent = nullptr) : QToolButton(parent) {
+        setFixedSize(32, 32);
+        setText("");
+    }
+
+    int angle() const { return m_angle; }
+    void setAngle(int a) {
+        m_angle = a % 360;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        // 背景
+        bool hov = underMouse();
+        p.setBrush(hov ? QColor(0,113,227,30) : Qt::transparent);
+        p.setPen(Qt::NoPen);
+        p.drawRoundedRect(rect(), 8, 8);
+
+        // 旋转绘制刷新图标
+        p.translate(width()/2.0, height()/2.0);
+        p.rotate(m_angle);
+
+        int r = 10;
+        QPen pen(QColor("#0071e3"), 2.2, Qt::SolidLine, Qt::RoundCap);
+        p.setPen(pen);
+        // 圆弧（270度）
+        p.drawArc(-r, -r, 2*r, 2*r, 100*16, 260*16);
+
+        // 箭头头部
+        p.setBrush(QColor("#0071e3"));
+        p.setPen(Qt::NoPen);
+        QPolygonF arrow;
+        // 箭头在顶部约 80 度位置
+        double rad = qDegreesToRadians(-10.0);
+        double cx = r * qCos(rad);
+        double cy = -r * qSin(rad);
+        arrow << QPointF(cx, cy)
+              << QPointF(cx - 5, cy - 3)
+              << QPointF(cx + 1, cy - 6);
+        p.drawPolygon(arrow);
+    }
+
+private:
+    int m_angle = 0;
+};
+
+// ── 深色模式切换按钮 ──────────────────────────────────────────────
+class ThemeButton : public QToolButton {
+    Q_OBJECT
+    Q_PROPERTY(qreal moonPhase READ moonPhase WRITE setMoonPhase)
+public:
+    explicit ThemeButton(QWidget* parent = nullptr) : QToolButton(parent) {
+        setFixedSize(64, 32);
+        setText("");
+        setCheckable(true);
+    }
+
+    qreal moonPhase() const { return m_phase; }
+    void setMoonPhase(qreal v) { m_phase = v; update(); }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        bool dark = isChecked();
+
+        // 轨道背景
+        QColor trackColor = dark ? QColor("#0a84ff") : QColor("#d1d1d6");
+        p.setBrush(trackColor);
+        p.setPen(Qt::NoPen);
+        p.drawRoundedRect(rect(), 16, 16);
+
+        // 滑块位置插值
+        qreal t = m_phase; // 0=浅色, 1=深色
+        qreal knobX = 4 + t * (width() - 32 - 4);
+        QRectF knob(knobX, 4, 24, 24);
+
+        p.setBrush(QColor("#ffffff"));
+        p.drawEllipse(knob);
+
+        // 图标：太阳/月亮
+        p.setPen(dark ? QColor("#1c1c1e") : QColor("#ff9500"));
+        p.setFont(QFont("Arial", 11));
+        QString icon = dark ? "🌙" : "☀️";
+        p.drawText(knob, Qt::AlignCenter, icon);
+    }
+
+private:
+    qreal m_phase = 0.0;
+};
+
+#include "MainWindow.moc"
+
+// ─────────────────────────────────────────────────────────────────
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("LaunchPad Manager");
     setMinimumSize(860, 580);
@@ -16,25 +125,49 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     m_manager = new DesktopFileManager(this);
 
-    // 工具栏（顶部，含深色模式切换）
+    // ── 工具栏 ──
     QToolBar* toolbar = new QToolBar("工具栏", this);
     toolbar->setMovable(false);
     toolbar->setFloatable(false);
-    toolbar->setIconSize(QSize(18, 18));
     toolbar->setObjectName("MainToolBar");
+    toolbar->setIconSize(QSize(18, 18));
     addToolBar(Qt::TopToolBarArea, toolbar);
 
-    // 弹簧：把按钮推到右边
+    // 刷新按钮
+    m_refreshBtn = new RefreshButton;
+    m_refreshBtn->setToolTip("刷新应用列表");
+    toolbar->addWidget(m_refreshBtn);
+
+    // 弹簧
     QWidget* spacer = new QWidget;
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     toolbar->addWidget(spacer);
 
-    m_darkModeAction = new QAction("🌙  深色模式", this);
-    m_darkModeAction->setCheckable(true);
-    toolbar->addAction(m_darkModeAction);
-    connect(m_darkModeAction, &QAction::triggered, this, &MainWindow::toggleDarkMode);
+    // 深色模式切换
+    m_darkModeBtn = new ThemeButton;
+    m_darkModeBtn->setToolTip("切换深色/浅色模式");
+    toolbar->addWidget(m_darkModeBtn);
 
-    // Splitter
+    // 刷新旋转动画
+    m_rotateAnim = new QPropertyAnimation(m_refreshBtn, "angle", this);
+    m_rotateAnim->setDuration(600);
+    m_rotateAnim->setStartValue(0);
+    m_rotateAnim->setEndValue(360);
+    m_rotateAnim->setEasingCurve(QEasingCurve::OutCubic);
+
+    // 主题淡入淡出动画
+    m_opacityEffect = new QGraphicsOpacityEffect(this);
+    m_fadeAnim = new QPropertyAnimation(m_opacityEffect, "opacity", this);
+    m_fadeAnim->setDuration(300);
+    m_fadeAnim->setEasingCurve(QEasingCurve::InOutSine);
+
+    // 深色按钮切换动画（moonPhase 属性）
+    // ThemeButton 已内置插值，通过 QPropertyAnimation 驱动
+    auto* themeAnim = new QPropertyAnimation(m_darkModeBtn, "moonPhase", this);
+    themeAnim->setDuration(350);
+    themeAnim->setEasingCurve(QEasingCurve::InOutQuad);
+
+    // ── Splitter ──
     m_splitter = new QSplitter(Qt::Horizontal);
     m_splitter->setHandleWidth(1);
 
@@ -49,6 +182,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     setCentralWidget(m_splitter);
     statusBar()->showMessage("就绪");
+
+    // ── 连接信号 ──
+    connect(m_refreshBtn, &QToolButton::clicked, this, &MainWindow::onRefresh);
+
+    connect(m_darkModeBtn, &QToolButton::clicked, this, [this, themeAnim](){
+        m_darkMode = m_darkModeBtn->isChecked();
+        // 滑块动画
+        themeAnim->stop();
+        themeAnim->setStartValue(m_darkMode ? 0.0 : 1.0);
+        themeAnim->setEndValue(m_darkMode ? 1.0 : 0.0);
+        themeAnim->start();
+        toggleDarkMode();
+    });
 
     connect(m_leftPanel,  &LeftPanel::scopeChanged,
             this,         &MainWindow::onScopeChanged);
@@ -71,10 +217,47 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_manager->refresh();
 }
 
+void MainWindow::onRefresh() {
+    // 旋转动画
+    m_rotateAnim->stop();
+    static_cast<RefreshButton*>(m_refreshBtn)->setAngle(0);
+    m_rotateAnim->start();
+    m_refreshBtn->setEnabled(false);
+
+    // 刷新完成后恢复
+    QTimer::singleShot(650, this, [this](){
+        m_manager->refresh();
+        m_refreshBtn->setEnabled(true);
+    });
+
+    statusBar()->showMessage("正在刷新…");
+}
+
 void MainWindow::toggleDarkMode() {
-    m_darkMode = m_darkModeAction->isChecked();
-    m_darkModeAction->setText(m_darkMode ? "☀️  浅色模式" : "🌙  深色模式");
-    applyTheme();
+    // 淡出 → 切换主题 → 淡入
+    m_fadeAnim->stop();
+
+    auto* centralW = centralWidget();
+    centralW->setGraphicsEffect(m_opacityEffect);
+
+    // 淡出
+    m_fadeAnim->setStartValue(1.0);
+    m_fadeAnim->setEndValue(0.0);
+    m_fadeAnim->start();
+
+    connect(m_fadeAnim, &QPropertyAnimation::finished, this, [this](){
+        disconnect(m_fadeAnim, &QPropertyAnimation::finished, this, nullptr);
+        applyTheme();
+
+        // 淡入
+        m_fadeAnim->setStartValue(0.0);
+        m_fadeAnim->setEndValue(1.0);
+        m_fadeAnim->start();
+        connect(m_fadeAnim, &QPropertyAnimation::finished, this, [this](){
+            disconnect(m_fadeAnim, &QPropertyAnimation::finished, this, nullptr);
+            centralWidget()->setGraphicsEffect(nullptr);
+        });
+    });
 }
 
 void MainWindow::applyTheme() {
@@ -116,39 +299,31 @@ void MainWindow::onDeleteRequested(const QString& filePath) {
 }
 
 void MainWindow::onUninstallRequested(const QString& filePath) {
-    // 读取 desktop 文件拿到包名（文件名去掉.desktop）
     QFileInfo fi(filePath);
     QString appName = fi.baseName();
 
     auto ret = QMessageBox::question(this, "卸载应用",
-        QString("确定要卸载 %1 吗？\n\n这将尝试使用包管理器卸载该软件，并删除其启动项。\n此操作不可逆！")
+        QString("确定要卸载 %1 吗？\n\n将尝试通过包管理器卸载，并删除启动项。\n此操作不可逆！")
             .arg(appName),
         QMessageBox::Yes | QMessageBox::No);
-
     if (ret != QMessageBox::Yes) return;
 
-    // 先删除 desktop 文件
     m_manager->removeFile(filePath);
 
-    // 尝试用 apt / flatpak / snap 卸载
-    // 策略：先尝试 apt，再尝试 flatpak，再尝试 snap
     QStringList cmds = {
         QString("pkexec apt-get remove -y %1").arg(appName),
         QString("flatpak uninstall -y --noninteractive %1").arg(appName),
         QString("snap remove %1").arg(appName),
     };
 
-    bool tried = false;
     for (const QString& cmd : cmds) {
         QStringList args = cmd.split(' ');
         QString prog = args.takeFirst();
         QProcess proc;
         proc.start(prog, args);
         if (proc.waitForStarted(2000)) {
-            tried = true;
             proc.waitForFinished(30000);
-            int code = proc.exitCode();
-            if (code == 0) {
+            if (proc.exitCode() == 0) {
                 QMessageBox::information(this, "卸载成功",
                     QString("%1 已成功卸载。").arg(appName));
                 m_rightPanel->infoPage()->clear();
@@ -158,15 +333,8 @@ void MainWindow::onUninstallRequested(const QString& filePath) {
         }
     }
 
-    if (!tried) {
-        QMessageBox::warning(this, "卸载",
-            "已删除启动项，但无法自动调用包管理器卸载程序本体。\n"
-            "请手动使用 apt / flatpak / snap 卸载。");
-    } else {
-        QMessageBox::warning(this, "卸载",
-            QString("已删除启动项，但包管理器卸载 %1 失败。\n"
-                    "可能该应用不是通过包管理器安装的，请手动卸载。").arg(appName));
-    }
+    QMessageBox::warning(this, "卸载",
+        QString("已删除启动项，但包管理器卸载 %1 失败。\n请手动卸载。").arg(appName));
 }
 
 void MainWindow::onAddRequested(const DesktopFile& df) {

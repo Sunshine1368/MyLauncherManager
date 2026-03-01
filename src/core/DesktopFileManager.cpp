@@ -5,7 +5,6 @@
 #include <QFile>
 #include <QSettings>
 #include <QStandardPaths>
-#include <QTextStream>
 #include <QDebug>
 
 DesktopFileManager::DesktopFileManager(QObject* parent)
@@ -22,14 +21,11 @@ void DesktopFileManager::setScope(Scope scope) {
 QStringList DesktopFileManager::scanDirs() const {
     QStringList dirs;
     if (m_scope == Scope::AllUsers) {
-        // 系统级目录
         dirs << "/usr/share/applications"
              << "/usr/local/share/applications";
-        // 也包含当前用户
         QString home = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
         dirs << home + "/.local/share/applications";
     } else {
-        // 仅当前用户
         QString home = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
         dirs << home + "/.local/share/applications";
     }
@@ -41,7 +37,6 @@ DesktopFile DesktopFileManager::parseFile(const QString& path) const {
     df.filePath = path;
 
     QSettings ini(path, QSettings::IniFormat);
-    ini.setIniCodec("UTF-8");
     ini.beginGroup("Desktop Entry");
 
     df.type        = ini.value("Type", "Application").toString();
@@ -56,12 +51,10 @@ DesktopFile DesktopFileManager::parseFile(const QString& path) const {
 
     ini.endGroup();
 
-    // 过滤：只要 Application 类型，非隐藏，有 Name
     if (df.type != "Application" || df.hidden || df.noDisplay || df.name.isEmpty()) {
-        return {};   // 返回空（filePath 为空，isValid() 为 false）
+        return {};
     }
 
-    // 加载图标
     if (!df.icon.isEmpty()) {
         df.resolvedIcon = IconLoader::load(df.icon);
     }
@@ -84,13 +77,12 @@ void DesktopFileManager::refresh() {
             seen.insert(path);
 
             DesktopFile df = parseFile(path);
-            if (df.isValid()) {          // 只收录有图标的
+            if (df.isValid()) {
                 m_files.append(df);
             }
         }
     }
 
-    // 按名称排序
     std::sort(m_files.begin(), m_files.end(), [](const DesktopFile& a, const DesktopFile& b){
         return a.name.toLower() < b.name.toLower();
     });
@@ -98,10 +90,8 @@ void DesktopFileManager::refresh() {
     emit filesChanged();
 }
 
-// ---- 写入辅助 ----
 static void writeDesktopFile(const DesktopFile& df) {
     QSettings ini(df.filePath, QSettings::IniFormat);
-    ini.setIniCodec("UTF-8");
     ini.beginGroup("Desktop Entry");
     ini.setValue("Type",        df.type.isEmpty() ? "Application" : df.type);
     ini.setValue("Name",        df.name);
@@ -118,11 +108,8 @@ static void writeDesktopFile(const DesktopFile& df) {
 
 bool DesktopFileManager::addFile(const DesktopFile& df) {
     if (df.filePath.isEmpty()) return false;
-
-    // 确保目录存在
     QFileInfo fi(df.filePath);
     QDir().mkpath(fi.absolutePath());
-
     writeDesktopFile(df);
     refresh();
     return true;

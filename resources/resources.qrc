@@ -1,0 +1,6 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <qresource prefix="/">
+    <file>styles/macos11.qss</file>
+  </qresource>
+</RCC>

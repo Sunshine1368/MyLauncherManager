@@ -5,10 +5,10 @@
 #include <QIcon>
 #include <QApplication>
 
-static const int ICON_SIZE    = 40;
-static const int ITEM_HEIGHT  = 62;
-static const int H_MARGIN     = 10;
-static const int V_MARGIN     = 8;
+static const int ICON_SIZE   = 40;
+static const int ITEM_HEIGHT = 62;
+static const int H_MARGIN    = 10;
+static const int V_MARGIN    = 8;
 static const int ICON_TEXT_GAP = 12;
 
 DesktopFileDelegate::DesktopFileDelegate(QObject* parent)
@@ -24,7 +24,6 @@ void DesktopFileDelegate::paint(QPainter* painter,
 
     QRect r = option.rect;
 
-    // 背景
     bool selected = option.state & QStyle::State_Selected;
     bool hovered  = option.state & QStyle::State_MouseOver;
 
@@ -38,42 +37,41 @@ void DesktopFileDelegate::paint(QPainter* painter,
         painter->drawRoundedRect(r.adjusted(4,2,-4,-2), 10, 10);
     }
 
-    // 图标
     QIcon icon = qvariant_cast<QIcon>(index.data(Qt::DecorationRole));
     QRect iconRect(r.left() + H_MARGIN,
                    r.top() + (r.height() - ICON_SIZE) / 2,
                    ICON_SIZE, ICON_SIZE);
     icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
 
-    // 文字区域
     int textX = iconRect.right() + ICON_TEXT_GAP;
     int textW = r.right() - textX - H_MARGIN;
 
     QString name    = index.data(DesktopFileModel::NameRole).toString();
     QString comment = index.data(DesktopFileModel::CommentRole).toString();
 
-    // Name
+    // 名称：固定字号 13
     QFont nameFont = option.font;
-    nameFont.setPointSizeF(nameFont.pointSizeF());
+    nameFont.setPointSize(13);
     nameFont.setWeight(QFont::Medium);
     painter->setFont(nameFont);
-    painter->setPen(QColor("#1d1d1f"));
+    painter->setPen(option.palette.text().color());
 
-    QRect nameRect(textX, r.top() + V_MARGIN, textW, 20);
+    QFontMetrics nameFm(nameFont);
+    QRect nameRect(textX, r.top() + V_MARGIN, textW, 22);
     painter->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter,
-                      option.fontMetrics.elidedText(name, Qt::ElideRight, textW));
+                      nameFm.elidedText(name, Qt::ElideRight, textW));
 
-    // Comment
+    // 简介：固定字号 11
     if (!comment.isEmpty()) {
         QFont commentFont = option.font;
-        commentFont.setPointSizeF(commentFont.pointSizeF() - 1);
+        commentFont.setPointSize(11);
         painter->setFont(commentFont);
-        painter->setPen(QColor("#636366"));
+        painter->setPen(QColor("#8e8e93"));
 
-        QFontMetrics fm(commentFont);
-        QRect commentRect(textX, nameRect.bottom() + 3, textW, 16);
+        QFontMetrics commentFm(commentFont);
+        QRect commentRect(textX, nameRect.bottom() + 2, textW, 18);
         painter->drawText(commentRect, Qt::AlignLeft | Qt::AlignVCenter,
-                          fm.elidedText(comment, Qt::ElideRight, textW));
+                          commentFm.elidedText(comment, Qt::ElideRight, textW));
     }
 
     painter->restore();

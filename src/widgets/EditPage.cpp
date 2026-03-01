@@ -33,7 +33,6 @@ EditPage::EditPage(QWidget* parent) : QWidget(parent) {
     iconRow->addWidget(chooseIconBtn);
     iconRow->addStretch();
     connect(chooseIconBtn, &QPushButton::clicked, this, &EditPage::onChooseIcon);
-
     vl->addLayout(iconRow);
 
     // 表单
@@ -64,29 +63,33 @@ EditPage::EditPage(QWidget* parent) : QWidget(parent) {
     form->addRow(makeLabel("分类"),       m_categoriesEdit);
 
     connect(m_iconEdit, &QLineEdit::textChanged, this, [this](const QString& t){
-        QIcon ic = IconLoader::load(t);
-        m_iconPreview->setPixmap(ic.pixmap(64,64));
+        m_iconPreview->setPixmap(IconLoader::load(t).pixmap(64,64));
     });
 
     vl->addWidget(group);
 
     // 按钮行
     auto* btnRow = new QHBoxLayout;
-    btnRow->addStretch();
+    btnRow->setSpacing(8);
 
-    auto* deleteBtn = new QPushButton("删除");
-    deleteBtn->setObjectName("DangerButton");
-    deleteBtn->setFixedWidth(90);
+    auto* uninstallBtn = new QPushButton("🗑  卸载软件");
+    uninstallBtn->setObjectName("DangerButton");
+
+    auto* deleteBtn = new QPushButton("删除启动项");
+    deleteBtn->setObjectName("WarnButton");
 
     auto* saveBtn = new QPushButton("保存");
     saveBtn->setObjectName("PrimaryButton");
     saveBtn->setFixedWidth(90);
 
+    btnRow->addWidget(uninstallBtn);
     btnRow->addWidget(deleteBtn);
+    btnRow->addStretch();
     btnRow->addWidget(saveBtn);
 
-    connect(saveBtn,   &QPushButton::clicked, this, &EditPage::onSave);
-    connect(deleteBtn, &QPushButton::clicked, this, &EditPage::onDelete);
+    connect(saveBtn,      &QPushButton::clicked, this, &EditPage::onSave);
+    connect(deleteBtn,    &QPushButton::clicked, this, &EditPage::onDelete);
+    connect(uninstallBtn, &QPushButton::clicked, this, &EditPage::onUninstall);
 
     vl->addLayout(btnRow);
     vl->addStretch();
@@ -129,7 +132,6 @@ void EditPage::onSave() {
         QMessageBox::warning(this, "提示", "启动命令不能为空");
         return;
     }
-
     DesktopFile df = m_current;
     df.name        = m_nameEdit->text().trimmed();
     df.genericName = m_genericNameEdit->text().trimmed();
@@ -138,24 +140,28 @@ void EditPage::onSave() {
     df.icon        = m_iconEdit->text().trimmed();
     df.categories  = m_categoriesEdit->text().trimmed();
     df.type        = "Application";
-
     emit saveRequested(df);
 }
 
 void EditPage::onDelete() {
     if (m_current.filePath.isEmpty()) return;
     auto ret = QMessageBox::question(this, "确认删除",
-        QString("确定要删除 %1 的启动项吗？\n文件将被永久删除。").arg(m_current.name),
+        QString("确定要删除 %1 的启动项吗？\n仅删除 .desktop 文件，不卸载程序本体。")
+            .arg(m_current.name),
         QMessageBox::Yes | QMessageBox::No);
     if (ret == QMessageBox::Yes)
         emit deleteRequested(m_current.filePath);
+}
+
+void EditPage::onUninstall() {
+    if (m_current.filePath.isEmpty()) return;
+    emit uninstallRequested(m_current.filePath);
 }
 
 void EditPage::onChooseIcon() {
     QString path = QFileDialog::getOpenFileName(this, "选择图标",
         "/usr/share/pixmaps",
         "图像文件 (*.png *.svg *.xpm *.ico)");
-    if (!path.isEmpty()) {
+    if (!path.isEmpty())
         m_iconEdit->setText(path);
-    }
 }

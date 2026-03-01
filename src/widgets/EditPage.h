@@ -14,15 +14,16 @@ public:
 signals:
     void saveRequested(const DesktopFile& df);
     void deleteRequested(const QString& filePath);
+    void uninstallRequested(const QString& filePath);
 
 private slots:
     void onSave();
     void onDelete();
+    void onUninstall();
     void onChooseIcon();
 
 private:
     DesktopFile  m_current;
-
     QLabel*     m_iconPreview;
     QLineEdit*  m_nameEdit;
     QLineEdit*  m_genericNameEdit;
